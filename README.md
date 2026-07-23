@@ -1,22 +1,17 @@
 # spine-file-parser
 
-Go library for inspecting Spine files and exporting complete Spine
-Professional project data.
+Pure Go library for Spine files. Zero third-party dependencies.
 
-- zero third-party Go dependencies;
-- inspect raw-DEFLATE Spine Editor `.spine` projects;
-- extract editor version and diagnostic strings;
-- inspect current and legacy exported `.skel` headers;
-- parse exported Spine JSON;
-- invoke the official Spine CLI for complete bones, slots, constraints, skins,
-  meshes, events, and animations;
-- keep JSON, decoded binary, strings, metadata, and CLI logs in a unique
-  temporary directory for manual troubleshooting.
+- detect `.spine`, `.skel`, and Spine JSON;
+- deserialize and serialize private `.spine` raw-DEFLATE envelopes;
+- deserialize and serialize `.skel` headers without changing unknown payload;
+- deserialize and serialize Spine JSON while preserving unknown fields;
+- convert complete `.spine ↔ JSON` data through the official Spine CLI;
+- keep JSON, binary, strings, metadata, and CLI logs in temporary directories.
 
-> `.spine` is Spine Editor's private, version-dependent project format. Its
-> semantic schema is not public. Pure Go APIs inspect the stable compression
-> envelope and metadata. Complete semantic data uses Spine's supported CLI
-> export path.
+> `.spine` uses a private, version-dependent semantic schema. This library
+> preserves its opaque binary payload losslessly. Semantic project conversion
+> uses Spine's officially supported CLI import/export path.
 
 ## Install
 
@@ -28,7 +23,7 @@ go get github.com/neko233-com/spine-file-parser
 import spineparser "github.com/neko233-com/spine-file-parser"
 ```
 
-## Inspect a `.spine` project
+## `.spine` binary round trip
 
 ```go
 source, err := os.ReadFile("character.spine")
@@ -36,7 +31,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-inspection, err := spineparser.InspectProject(
+document, err := spineparser.DeserializeProject(
 	source,
 	spineparser.InspectOptions{},
 )
@@ -44,45 +39,75 @@ if err != nil {
 	log.Fatal(err)
 }
 
-fmt.Println(inspection.SpineVersion)
-fmt.Println(inspection.Strings)
-```
+fmt.Println(document.Inspection.SpineVersion)
+fmt.Println(document.Inspection.Strings)
 
-## Inspect a file and keep diagnostics
-
-```go
-result, err := spineparser.InspectFile(
-	"character.spine",
-	spineparser.InspectFileOptions{},
+encoded, err := spineparser.SerializeProject(
+	document,
+	spineparser.ProjectSerializeOptions{},
 )
 if err != nil {
 	log.Fatal(err)
 }
 
-fmt.Println(result.OutputDirectory)
-fmt.Println(result.Artifacts)
+if err := os.WriteFile("character-copy.spine", encoded, 0o644); err != nil {
+	log.Fatal(err)
+}
 ```
 
-Default layout:
-
-```text
-spine-file-parser-<random>/
-└─ diagnostics/
-   ├─ character.inspection.json
-   ├─ character.strings.txt
-   └─ character.decoded.bin
-```
-
-Use `OutputDirectory` for a known location. Set `OmitDecodedBinary` to avoid
-writing the decompressed private stream.
-
-## Export and parse a Spine Professional project
-
-Requires a locally installed and licensed Spine Editor. This library does not
-bundle Spine, Spine Runtimes, or a license.
+`ProjectDocument` also implements `encoding.BinaryMarshaler` and
+`encoding.BinaryUnmarshaler`:
 
 ```go
-result, err := spineparser.ExportProject(
+encoded, err := document.MarshalBinary()
+
+var decoded spineparser.ProjectDocument
+err = decoded.UnmarshalBinary(encoded)
+```
+
+Compression bytes may differ after re-encoding, but the decompressed private
+payload remains byte-for-byte identical.
+
+## `.skel` binary round trip
+
+```go
+document, err := spineparser.DeserializeSkeletonBinary(source)
+if err != nil {
+	log.Fatal(err)
+}
+
+document.Header.Width = 1920
+encoded, err := spineparser.SerializeSkeletonBinary(document)
+```
+
+`SkeletonBinaryDocument` preserves the unparsed skeleton payload and rewrites
+only its header. It also implements `encoding.BinaryMarshaler` and
+`encoding.BinaryUnmarshaler`.
+
+## Spine JSON round trip
+
+```go
+document, err := spineparser.DeserializeJSON(source)
+if err != nil {
+	log.Fatal(err)
+}
+
+document.Bones[0].Name = "renamed-root"
+
+encoded, err := spineparser.SerializeJSON(
+	document,
+	spineparser.JSONSerializeOptions{Indent: "  "},
+)
+```
+
+Unknown root, skeleton, bone, and slot fields survive the round trip.
+
+## Complete `.spine` → JSON deserialization
+
+Requires a locally installed and licensed Spine Editor.
+
+```go
+result, err := spineparser.DeserializeProjectFile(
 	context.Background(),
 	"character.spine",
 	spineparser.ExportOptions{
@@ -94,7 +119,6 @@ if err != nil {
 	log.Fatal(err)
 }
 
-fmt.Println(result.OutputDirectory)
 for _, document := range result.Documents {
 	fmt.Println(document.FileName)
 	fmt.Println(len(document.Data.Bones))
@@ -102,7 +126,47 @@ for _, document := range result.Documents {
 }
 ```
 
-Output is intentionally kept:
+`ExportProject` is the equivalent shorter name.
+
+## Complete JSON → `.spine` serialization
+
+```go
+result, err := spineparser.SerializeProjectFile(
+	context.Background(),
+	document,
+	"character-restored.spine",
+	spineparser.ImportOptions{
+		Executable:   "D:/IDE/Spine/Spine.com",
+		SkeletonName: "character",
+		JSON: spineparser.JSONSerializeOptions{
+			Indent: "  ",
+		},
+	},
+)
+if err != nil {
+	log.Fatal(err)
+}
+
+fmt.Println(result.ProjectPath)
+```
+
+`ImportProject` is the equivalent shorter name. Use JSON exported with
+nonessential data when the restored project must retain the maximum available
+editor metadata.
+
+## Temporary diagnostics
+
+Pure file inspection:
+
+```go
+result, err := spineparser.InspectFile(
+	"character.spine",
+	spineparser.InspectFileOptions{},
+)
+fmt.Println(result.OutputDirectory)
+```
+
+CLI export layout:
 
 ```text
 spine-file-parser-<random>/
@@ -114,16 +178,18 @@ spine-file-parser-<random>/
    └─ character.spine-cli.log
 ```
 
-Failed CLI exports also keep diagnostics and include the directory in the
-returned error. Set `SPINE_EXECUTABLE` instead of passing `Executable` on every
-call.
+CLI import diagnostics additionally contain `character.import.json`. Output is
+intentionally kept after success or failure. Set `OutputDirectory` for a known
+location or `OmitDecodedBinary` to skip the decompressed payload.
+
+Set `SPINE_EXECUTABLE` instead of passing `Executable` on every call.
 
 ## Resource limits
 
 Project decompression is limited to 256 MiB by default:
 
 ```go
-inspection, err := spineparser.InspectProject(
+document, err := spineparser.DeserializeProject(
 	source,
 	spineparser.InspectOptions{
 		MaxUncompressedBytes: 512 * 1024 * 1024,
@@ -131,16 +197,6 @@ inspection, err := spineparser.InspectProject(
 	},
 )
 ```
-
-## TypeScript compatibility package
-
-Existing TypeScript API remains available:
-
-```bash
-npm install spine-file-parser
-```
-
-New development targets the Go module.
 
 ## License
 

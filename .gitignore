@@ -1,16 +1,12 @@
-node_modules/
 dist/
 coverage/
-.vite/
-.vitest/
+coverage.*
 tmp/
 temp/
 .tmp/
 .temp/
 test-results/
 *.log
-*.tgz
-*.tsbuildinfo
 *.test
 *.out
 vendor/

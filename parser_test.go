@@ -1,6 +1,7 @@
 package spineparser
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("test", "fixtures", name))
+	data, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +39,40 @@ func TestInspectOfficialProProject(t *testing.T) {
 	}
 }
 
+func TestProjectBinaryRoundTrip(t *testing.T) {
+	source := fixture(t, "coin-pro.spine")
+	document, err := DeserializeProject(source, InspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := SerializeProject(document, ProjectSerializeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := DeserializeProject(serialized, InspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(document.Payload, roundTrip.Payload) {
+		t.Fatal("project payload changed during round trip")
+	}
+	if roundTrip.Inspection.SpineVersion != "4.0.07" {
+		t.Fatalf("version = %q", roundTrip.Inspection.SpineVersion)
+	}
+
+	binaryValue, err := document.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unmarshaled ProjectDocument
+	if err := unmarshaled.UnmarshalBinary(binaryValue); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(document.Payload, unmarshaled.Payload) {
+		t.Fatal("BinaryMarshaler round trip changed payload")
+	}
+}
+
 func TestInspectOfficialSkeletonBinary(t *testing.T) {
 	source := fixture(t, "coin-pro.skel")
 	result, err := InspectSkeletonBinary(source)
@@ -55,6 +90,37 @@ func TestInspectOfficialSkeletonBinary(t *testing.T) {
 	}
 }
 
+func TestSkeletonBinaryRoundTrip(t *testing.T) {
+	source := fixture(t, "coin-pro.skel")
+	document, err := DeserializeSkeletonBinary(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := SerializeSkeletonBinary(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(source, serialized) {
+		t.Fatal("skeleton binary changed during lossless round trip")
+	}
+
+	document.Header.Width = 321
+	changed, err := document.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reparsed SkeletonBinaryDocument
+	if err := reparsed.UnmarshalBinary(changed); err != nil {
+		t.Fatal(err)
+	}
+	if reparsed.Header.Width != 321 {
+		t.Fatalf("width = %v", reparsed.Header.Width)
+	}
+	if !bytes.Equal(document.Payload, reparsed.Payload) {
+		t.Fatal("skeleton payload changed while rewriting header")
+	}
+}
+
 func TestInspectLimit(t *testing.T) {
 	_, err := InspectProject(fixture(t, "coin-pro.spine"), InspectOptions{
 		MaxUncompressedBytes: 100,
@@ -67,7 +133,7 @@ func TestInspectLimit(t *testing.T) {
 
 func TestInspectFileKeepsDiagnostics(t *testing.T) {
 	result, err := InspectFile(
-		filepath.Join("test", "fixtures", "coin-pro.spine"),
+		filepath.Join("testdata", "coin-pro.spine"),
 		InspectFileOptions{},
 	)
 	if err != nil {
@@ -95,7 +161,7 @@ func TestExportFailureKeepsDiagnostics(t *testing.T) {
 	output := t.TempDir()
 	_, err := ExportProject(
 		context.Background(),
-		filepath.Join("test", "fixtures", "coin-pro.spine"),
+		filepath.Join("testdata", "coin-pro.spine"),
 		ExportOptions{
 			InspectFileOptions: InspectFileOptions{OutputDirectory: output},
 			Executable:         "__missing_spine_executable__",
@@ -123,7 +189,7 @@ func TestIntegrationExportOfficialProProject(t *testing.T) {
 	}
 	result, err := ExportProject(
 		context.Background(),
-		filepath.Join("test", "fixtures", "coin-pro.spine"),
+		filepath.Join("testdata", "coin-pro.spine"),
 		ExportOptions{},
 	)
 	if err != nil {
@@ -132,14 +198,41 @@ func TestIntegrationExportOfficialProProject(t *testing.T) {
 	if len(result.Documents) != 1 || len(result.Documents[0].Data.Bones) != 7 {
 		t.Fatalf("documents = %#v", result.Documents)
 	}
-	t.Logf("diagnostics kept at %s", result.OutputDirectory)
+	imported, err := ImportProject(
+		context.Background(),
+		result.Documents[0].Data,
+		filepath.Join(t.TempDir(), "coin-roundtrip.spine"),
+		ImportOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reexported, err := ExportProject(
+		context.Background(),
+		imported.ProjectPath,
+		ExportOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reexported.Documents) != 1 ||
+		len(reexported.Documents[0].Data.Bones) != 7 {
+		t.Fatalf("reexported documents = %#v", reexported.Documents)
+	}
+	t.Logf(
+		"export diagnostics: %s; import diagnostics: %s; re-export diagnostics: %s",
+		result.OutputDirectory,
+		imported.OutputDirectory,
+		reexported.OutputDirectory,
+	)
 }
 
 func TestParseJSON(t *testing.T) {
-	result, err := ParseJSON([]byte(`{
-		"skeleton":{"spine":"4.2.0"},
-		"bones":[{"name":"root"}],
-		"animations":{"idle":{}}
+	result, err := DeserializeJSON([]byte(`{
+		"skeleton":{"spine":"4.2.0","customSkeleton":true},
+		"bones":[{"name":"root","rotation":12,"customBone":"kept"}],
+		"animations":{"idle":{}},
+		"customRoot":{"value":7}
 	}`))
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +242,25 @@ func TestParseJSON(t *testing.T) {
 	}
 	if len(result.Bones) != 1 || result.Bones[0].Name != "root" {
 		t.Fatalf("bones = %#v", result.Bones)
+	}
+	result.Bones[0].Name = "renamed-root"
+	serialized, err := SerializeJSON(result, JSONSerializeOptions{Indent: "  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := DeserializeJSON(serialized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Bones[0].Name != "renamed-root" ||
+		roundTrip.Bones[0].Data["customBone"] != "kept" {
+		t.Fatalf("round-trip bone = %#v", roundTrip.Bones[0])
+	}
+	if _, exists := roundTrip.Raw["customRoot"]; !exists {
+		t.Fatal("unknown root field was lost")
+	}
+	if _, exists := roundTrip.Skeleton.Raw["customSkeleton"]; !exists {
+		t.Fatal("unknown skeleton field was lost")
 	}
 }
 

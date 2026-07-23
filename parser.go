@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/flate"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -258,86 +257,13 @@ func (r *skeletonReader) float32() (float32, error) {
 	return value, nil
 }
 
-func inspectModernSkeleton(source []byte) (SkeletonBinaryInspection, error) {
-	if len(source) < 8 {
-		return SkeletonBinaryInspection{}, &ParseError{Code: ErrInvalidSkel, Msg: "skeleton binary is too short"}
-	}
-	reader := skeletonReader{data: source, offset: 8}
-	version, err := reader.string()
-	if err != nil || !versionPattern.MatchString(version) {
-		return SkeletonBinaryInspection{}, &ParseError{Code: ErrInvalidSkel, Msg: "invalid skeleton version", Cause: err}
-	}
-	values := make([]float32, 5)
-	for index := range values {
-		values[index], err = reader.float32()
-		if err != nil {
-			return SkeletonBinaryInspection{}, err
-		}
-	}
-	nonessential, err := reader.byte()
-	if err != nil {
-		return SkeletonBinaryInspection{}, err
-	}
-	hash := ""
-	if !bytes.Equal(source[:8], make([]byte, 8)) {
-		hash = hex.EncodeToString(source[:8])
-	}
-	referenceScale := values[4]
-	return SkeletonBinaryInspection{
-		Kind:           FileSkeletonBinary,
-		Hash:           hash,
-		SpineVersion:   version,
-		X:              values[0],
-		Y:              values[1],
-		Width:          values[2],
-		Height:         values[3],
-		ReferenceScale: &referenceScale,
-		Nonessential:   nonessential != 0,
-	}, nil
-}
-
-func inspectLegacySkeleton(source []byte) (SkeletonBinaryInspection, error) {
-	reader := skeletonReader{data: source}
-	hash, err := reader.string()
-	if err != nil {
-		return SkeletonBinaryInspection{}, err
-	}
-	version, err := reader.string()
-	if err != nil || !versionPattern.MatchString(version) {
-		return SkeletonBinaryInspection{}, &ParseError{Code: ErrInvalidSkel, Msg: "invalid skeleton version", Cause: err}
-	}
-	values := make([]float32, 4)
-	for index := range values {
-		values[index], err = reader.float32()
-		if err != nil {
-			return SkeletonBinaryInspection{}, err
-		}
-	}
-	nonessential, err := reader.byte()
-	if err != nil {
-		return SkeletonBinaryInspection{}, err
-	}
-	return SkeletonBinaryInspection{
-		Kind:         FileSkeletonBinary,
-		Hash:         hash,
-		SpineVersion: version,
-		X:            values[0],
-		Y:            values[1],
-		Width:        values[2],
-		Height:       values[3],
-		Nonessential: nonessential != 0,
-	}, nil
-}
-
 // InspectSkeletonBinary parses current and legacy exported .skel headers.
 func InspectSkeletonBinary(source []byte) (SkeletonBinaryInspection, error) {
-	if result, err := inspectModernSkeleton(source); err == nil {
-		return result, nil
+	document, err := DeserializeSkeletonBinary(source)
+	if err != nil {
+		return SkeletonBinaryInspection{}, err
 	}
-	if result, err := inspectLegacySkeleton(source); err == nil {
-		return result, nil
-	}
-	return SkeletonBinaryInspection{}, &ParseError{Code: ErrInvalidSkel, Msg: "invalid Spine skeleton binary"}
+	return document.Header, nil
 }
 
 // Detect identifies project, exported JSON, and exported binary files.
