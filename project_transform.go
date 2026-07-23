@@ -22,6 +22,7 @@ type ProjectTransformKey struct {
 	Time         float32      `json:"time"`
 	Values       []float32    `json:"values"`
 	Offset       int          `json:"offset"`
+	FrameOffset  int          `json:"frameOffset"`
 	ValueOffsets []int        `json:"valueOffsets"`
 	Curves       [][4]float32 `json:"curves"`
 	CurveFlags   []byte       `json:"curveFlags"`
@@ -95,8 +96,8 @@ func DiscoverProjectTransformTimelines(
 	}, nil
 }
 
-// ProjectTransformValueEdit changes one key channel. Channel is value for
-// rotate, or x/y for translate, scale, and shear.
+// ProjectTransformValueEdit changes one key channel. Channel is frame, value
+// for rotate, or x/y for translate, scale, and shear.
 type ProjectTransformValueEdit struct {
 	BoneReference int     `json:"boneReference"`
 	Timeline      string  `json:"timeline"`
@@ -232,31 +233,41 @@ func PatchProjectTransformValues(
 				len(timeline.Keys),
 			)
 		}
-		channelIndex := -1
-		for index, current := range timeline.Channels {
-			if current == channel {
-				channelIndex = index
-				break
-			}
-		}
-		if channelIndex < 0 {
-			return nil, ProjectTransformPatchReport{}, fmt.Errorf(
-				"edit %d: channel %q is invalid for %s",
-				editIndex,
-				edit.Channel,
-				timelineType,
-			)
-		}
 		selected := timeline.Keys[edit.KeyIndex]
-		if math.Float32bits(selected.Values[channelIndex]) != math.Float32bits(edit.From) {
+		currentValue := selected.Frame
+		valueOffset := selected.FrameOffset
+		if channel == "frame" {
+			if edit.To < 0 {
+				return nil, ProjectTransformPatchReport{},
+					fmt.Errorf("edit %d: frame must be non-negative", editIndex)
+			}
+		} else {
+			channelIndex := -1
+			for index, current := range timeline.Channels {
+				if current == channel {
+					channelIndex = index
+					break
+				}
+			}
+			if channelIndex < 0 {
+				return nil, ProjectTransformPatchReport{}, fmt.Errorf(
+					"edit %d: channel %q is invalid for %s",
+					editIndex,
+					edit.Channel,
+					timelineType,
+				)
+			}
+			currentValue = selected.Values[channelIndex]
+			valueOffset = selected.ValueOffsets[channelIndex]
+		}
+		if math.Float32bits(currentValue) != math.Float32bits(edit.From) {
 			return nil, ProjectTransformPatchReport{}, fmt.Errorf(
 				"edit %d: key channel value is %v, expected %v",
 				editIndex,
-				selected.Values[channelIndex],
+				currentValue,
 				edit.From,
 			)
 		}
-		valueOffset := selected.ValueOffsets[channelIndex]
 		binary.BigEndian.PutUint32(
 			payload[valueOffset:valueOffset+4],
 			math.Float32bits(edit.To),
@@ -271,6 +282,9 @@ func PatchProjectTransformValues(
 			To:            edit.To,
 			Offset:        valueOffset,
 		})
+	}
+	if err := validateProjectTransformFrameOrder(payload, directory); err != nil {
+		return nil, ProjectTransformPatchReport{}, err
 	}
 
 	if strings.TrimSpace(patch.TargetAnimation) != "" &&
@@ -297,6 +311,39 @@ func PatchProjectTransformValues(
 		Inspection: document.Inspection,
 		Payload:    payload,
 	}, report, nil
+}
+
+func validateProjectTransformFrameOrder(
+	payload []byte,
+	directory *ProjectTransformTimelineDirectory,
+) error {
+	for _, timeline := range directory.Timelines {
+		var previous float32
+		for index, key := range timeline.Keys {
+			frame := readProjectFloat32(payload, key.FrameOffset)
+			if !finiteProjectFloat(frame) || frame < 0 {
+				return fmt.Errorf(
+					"%s boneReference %d key %d has invalid frame %v",
+					timeline.Type,
+					timeline.BoneReference,
+					index,
+					frame,
+				)
+			}
+			if index > 0 && frame <= previous {
+				return fmt.Errorf(
+					"%s boneReference %d frames are not strictly increasing at key %d: %v <= %v",
+					timeline.Type,
+					timeline.BoneReference,
+					index,
+					frame,
+					previous,
+				)
+			}
+			previous = frame
+		}
+	}
+	return nil
 }
 
 func discoverProjectTransformTimelinesInGroup(
@@ -416,6 +463,7 @@ func readProjectTransformKeys(
 			Time:         frame / projectAnimationFrameRate,
 			Values:       make([]float32, componentCount),
 			Offset:       keyOffset,
+			FrameOffset:  next,
 			ValueOffsets: make([]int, componentCount),
 			Curves:       make([][4]float32, componentCount),
 			CurveFlags:   make([]byte, 4*componentCount+1),

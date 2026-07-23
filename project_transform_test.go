@@ -79,13 +79,21 @@ func TestDiscoverAndPatchProjectTransformTimelines(t *testing.T) {
 					From:          1.1,
 					To:            1.5,
 				},
+				{
+					BoneReference: 6,
+					Timeline:      ProjectTimelineTranslate,
+					KeyIndex:      1,
+					Channel:       "frame",
+					From:          4,
+					To:            5,
+				},
 			},
 		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Changes) != 2 {
+	if len(report.Changes) != 3 {
 		t.Fatalf("report = %#v", report)
 	}
 	rediscovered, err := DiscoverProjectTransformTimelines(
@@ -96,8 +104,29 @@ func TestDiscoverAndPatchProjectTransformTimelines(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rediscovered.Timelines[1].Keys[1].Values[0] != 8 ||
+		rediscovered.Timelines[1].Keys[1].Frame != 5 ||
 		rediscovered.Timelines[2].Keys[0].Values[1] != 1.5 {
 		t.Fatalf("rediscovered = %#v", rediscovered.Timelines)
+	}
+
+	_, _, err = PatchProjectTransformValues(
+		document,
+		ProjectTransformPatch{
+			Animation: "attack",
+			Edits: []ProjectTransformValueEdit{
+				{
+					BoneReference: 6,
+					Timeline:      ProjectTimelineTranslate,
+					KeyIndex:      1,
+					Channel:       "frame",
+					From:          4,
+					To:            0,
+				},
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("expected non-increasing frame error")
 	}
 }
 
