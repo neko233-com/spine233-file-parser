@@ -2,6 +2,7 @@
 
 TypeScript library for Spine files:
 
+- built and packaged with Vite 8;
 - inspect compressed Spine Editor `.spine` project files in browsers or Node.js;
 - read embedded editor version and diagnostic strings;
 - inspect official exported `.skel` headers;
