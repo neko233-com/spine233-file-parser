@@ -58,27 +58,9 @@ func PatchProjectAnimationFloat32(
 			&ParseError{Code: ErrInvalidInput, Msg: "at least one float32 edit is required"}
 	}
 
-	start, err := uniqueProjectStringOffset(document.Payload, patch.Animation)
+	start, end, err := projectAnimationRegion(document.Payload, patch.Animation, patch.EndBefore)
 	if err != nil {
-		return nil, ProjectAnimationFloatPatchReport{}, fmt.Errorf("animation: %w", err)
-	}
-	end := len(document.Payload)
-	if strings.TrimSpace(patch.EndBefore) != "" {
-		offsets, err := projectStringOffsets(document.Payload, patch.EndBefore)
-		if err != nil {
-			return nil, ProjectAnimationFloatPatchReport{}, fmt.Errorf("endBefore: %w", err)
-		}
-		end = -1
-		for _, offset := range offsets {
-			if offset > start {
-				end = offset
-				break
-			}
-		}
-		if end < 0 {
-			return nil, ProjectAnimationFloatPatchReport{},
-				&ParseError{Code: ErrInvalidInput, Msg: "endBefore string does not occur after animation"}
-		}
+		return nil, ProjectAnimationFloatPatchReport{}, err
 	}
 	if end <= start {
 		return nil, ProjectAnimationFloatPatchReport{},
@@ -172,6 +154,52 @@ func PatchProjectAnimationFloat32(
 		Payload:    payload,
 	}
 	return result, report, nil
+}
+
+func projectAnimationRegion(payload []byte, animation, endBefore string) (int, int, error) {
+	if directory, err := DiscoverProjectAnimations(payload); err == nil {
+		var selected *ProjectAnimationRecord
+		for index := range directory.Records {
+			if directory.Records[index].Name == animation {
+				selected = &directory.Records[index]
+				break
+			}
+		}
+		if selected == nil {
+			return 0, 0, fmt.Errorf("animation not found: %s", animation)
+		}
+		if strings.TrimSpace(endBefore) == "" {
+			return selected.Offset, selected.EndOffset, nil
+		}
+		for _, record := range directory.Records {
+			if record.Name == endBefore && record.Offset > selected.Offset {
+				return selected.Offset, record.Offset, nil
+			}
+		}
+		return 0, 0, fmt.Errorf("endBefore animation does not occur after %s: %s", animation, endBefore)
+	}
+
+	start, err := uniqueProjectStringOffset(payload, animation)
+	if err != nil {
+		return 0, 0, fmt.Errorf("animation: %w", err)
+	}
+	end := len(payload)
+	if strings.TrimSpace(endBefore) == "" {
+		return start, end, nil
+	}
+	offsets, err := projectStringOffsets(payload, endBefore)
+	if err != nil {
+		return 0, 0, fmt.Errorf("endBefore: %w", err)
+	}
+	for _, offset := range offsets {
+		if offset > start {
+			return start, offset, nil
+		}
+	}
+	return 0, 0, &ParseError{
+		Code: ErrInvalidInput,
+		Msg:  "endBefore string does not occur after animation",
+	}
 }
 
 func uniqueProjectStringOffset(payload []byte, value string) (int, error) {

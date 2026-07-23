@@ -5,6 +5,7 @@ Pure Go Spine 文件库。零第三方依赖，零 Spine Editor 进程依赖。
 - 检测 `.spine`、`.skel`、Spine JSON。
 - 无损解包/封包 `.spine` raw-DEFLATE payload。
 - fail-closed 修改指定动画记录内大端 float32 关键帧。
+- 自动解析现代 `.spine` 动画表、数量、名称和记录边界。
 - 解析/序列化 `.skel` header，保留未知 payload。
 - 解析/序列化 Spine JSON，保留未知字段。
 - Spine JSON 深度分析、引用验证、动画生成。
@@ -54,6 +55,15 @@ patched, report, err := spineparser.PatchProjectAnimationFloat32(
 
 关键帧编辑不修改对象引用；重命名只替换 Kryo ASCII 字符串。
 动画边界或匹配数量不符时失败。
+
+动画目录：
+
+```go
+directory, err := spineparser.DiscoverProjectAnimations(document.Payload)
+for _, animation := range directory.Records {
+	fmt.Println(animation.Name, animation.Offset, animation.EndOffset)
+}
+```
 输入 `document` 永不被修改。
 
 ## `.skel`
