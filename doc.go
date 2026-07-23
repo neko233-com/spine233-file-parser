@@ -2,7 +2,6 @@
 // binary, and JSON files.
 //
 // Spine Editor project schemas are private and version-dependent. The package
-// preserves the raw-DEFLATE payload losslessly and uses the official licensed
-// Spine CLI for complete semantic .spine to JSON conversion in either
-// direction.
+// preserves raw-DEFLATE payloads losslessly and provides bounded, fail-closed
+// direct project edits without invoking Spine Editor.
 package spineparser

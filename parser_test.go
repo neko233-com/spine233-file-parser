@@ -2,7 +2,6 @@ package spineparser
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -155,76 +154,6 @@ func TestInspectFileKeepsDiagnostics(t *testing.T) {
 	if info.Size() != 11399 {
 		t.Fatalf("decoded size = %d", info.Size())
 	}
-}
-
-func TestExportFailureKeepsDiagnostics(t *testing.T) {
-	output := t.TempDir()
-	_, err := ExportProject(
-		context.Background(),
-		filepath.Join("testdata", "coin-pro.spine"),
-		ExportOptions{
-			InspectFileOptions: InspectFileOptions{OutputDirectory: output},
-			Executable:         "__missing_spine_executable__",
-		},
-	)
-	if err == nil || !strings.Contains(err.Error(), "diagnostics kept at") {
-		t.Fatalf("error = %v", err)
-	}
-	content, readErr := os.ReadFile(filepath.Join(
-		output,
-		"diagnostics",
-		"coin-pro.spine-cli.log",
-	))
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if !strings.Contains(string(content), "# error") {
-		t.Fatal("CLI failure log missing error")
-	}
-}
-
-func TestIntegrationExportOfficialProProject(t *testing.T) {
-	if os.Getenv("SPINE_INTEGRATION") != "1" {
-		t.Skip("set SPINE_INTEGRATION=1 to use the locally licensed Spine CLI")
-	}
-	result, err := ExportProject(
-		context.Background(),
-		filepath.Join("testdata", "coin-pro.spine"),
-		ExportOptions{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Documents) != 1 || len(result.Documents[0].Data.Bones) != 7 {
-		t.Fatalf("documents = %#v", result.Documents)
-	}
-	imported, err := ImportProject(
-		context.Background(),
-		result.Documents[0].Data,
-		filepath.Join(t.TempDir(), "coin-roundtrip.spine"),
-		ImportOptions{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reexported, err := ExportProject(
-		context.Background(),
-		imported.ProjectPath,
-		ExportOptions{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reexported.Documents) != 1 ||
-		len(reexported.Documents[0].Data.Bones) != 7 {
-		t.Fatalf("reexported documents = %#v", reexported.Documents)
-	}
-	t.Logf(
-		"export diagnostics: %s; import diagnostics: %s; re-export diagnostics: %s",
-		result.OutputDirectory,
-		imported.OutputDirectory,
-		reexported.OutputDirectory,
-	)
 }
 
 func TestParseJSON(t *testing.T) {

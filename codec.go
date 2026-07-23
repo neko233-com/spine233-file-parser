@@ -19,8 +19,8 @@ var (
 
 // ProjectDocument is the lossless decompressed payload of a private .spine file.
 //
-// The payload is opaque because Spine's semantic project schema is private.
-// Use ExportProject and ImportProject for semantic JSON conversion.
+// The payload is retained losslessly. Direct, bounded animation edits are
+// available through PatchProjectAnimationFloat32.
 type ProjectDocument struct {
 	Inspection ProjectInspection `json:"inspection"`
 	Payload    []byte            `json:"payload"`
