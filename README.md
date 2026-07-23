@@ -1,4 +1,4 @@
-# spine-file-parser
+# spine233-file-parser
 
 Pure Go library for Spine files. Zero third-party dependencies.
 
@@ -16,11 +16,11 @@ Pure Go library for Spine files. Zero third-party dependencies.
 ## Install
 
 ```bash
-go get github.com/neko233-com/spine-file-parser
+go get github.com/neko233-com/spine233-file-parser
 ```
 
 ```go
-import spineparser "github.com/neko233-com/spine-file-parser"
+import spineparser "github.com/neko233-com/spine233-file-parser"
 ```
 
 ## `.spine` binary round trip
@@ -169,7 +169,7 @@ fmt.Println(result.OutputDirectory)
 CLI export layout:
 
 ```text
-spine-file-parser-<random>/
+spine233-file-parser-<random>/
 ├─ character.json
 └─ diagnostics/
    ├─ character.inspection.json

@@ -40,7 +40,7 @@ type InspectFileResult struct {
 
 func prepareOutputDirectory(requested string) (string, error) {
 	if requested == "" {
-		return os.MkdirTemp("", "spine-file-parser-")
+		return os.MkdirTemp("", "spine233-file-parser-")
 	}
 	absolute, err := filepath.Abs(requested)
 	if err != nil {
