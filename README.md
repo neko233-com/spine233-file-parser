@@ -155,6 +155,7 @@ patched, report, err := spineparser.PatchProjectSlotAttachmentFrames(
 			{
 				SlotReference:     14,
 				TimelineReference: 300,
+				TimelineOffset:    timelines.Timelines[0].Offset,
 				KeyIndex:          1,
 				From:              16,
 				To:                18,

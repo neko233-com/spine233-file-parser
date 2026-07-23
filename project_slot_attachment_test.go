@@ -45,6 +45,7 @@ func TestDiscoverAndPatchProjectSlotAttachmentTimelines(t *testing.T) {
 				{
 					SlotReference:     14,
 					TimelineReference: 300,
+					TimelineOffset:    directory.Timelines[0].Offset,
 					KeyIndex:          1,
 					From:              16,
 					To:                18,
@@ -100,6 +101,7 @@ func TestPatchProjectSlotAttachmentFramesRejectsOrderChange(t *testing.T) {
 				{
 					SlotReference:     14,
 					TimelineReference: 300,
+					TimelineOffset:    mustAttachmentTimelineOffsetForTest(t, payload),
 					KeyIndex:          1,
 					From:              16,
 					To:                13,
@@ -110,6 +112,15 @@ func TestPatchProjectSlotAttachmentFramesRejectsOrderChange(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected frame-order error")
 	}
+}
+
+func mustAttachmentTimelineOffsetForTest(t *testing.T, payload []byte) int {
+	t.Helper()
+	directory, err := DiscoverProjectSlotAttachmentTimelines(payload, "blink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directory.Timelines[0].Offset
 }
 
 func appendAttachmentKeyForTest(

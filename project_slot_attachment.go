@@ -93,6 +93,7 @@ func DiscoverProjectSlotAttachmentTimelines(
 type ProjectSlotAttachmentFrameEdit struct {
 	SlotReference     int     `json:"slotReference"`
 	TimelineReference int     `json:"timelineReference"`
+	TimelineOffset    int     `json:"timelineOffset"`
 	KeyIndex          int     `json:"keyIndex"`
 	From              float32 `json:"from"`
 	To                float32 `json:"to"`
@@ -110,6 +111,7 @@ type ProjectSlotAttachmentPatch struct {
 type ProjectSlotAttachmentFrameChange struct {
 	SlotReference     int     `json:"slotReference"`
 	TimelineReference int     `json:"timelineReference"`
+	TimelineOffset    int     `json:"timelineOffset"`
 	KeyIndex          int     `json:"keyIndex"`
 	From              float32 `json:"from"`
 	To                float32 `json:"to"`
@@ -146,18 +148,10 @@ func PatchProjectSlotAttachmentFrames(
 	if err != nil {
 		return nil, ProjectSlotAttachmentPatchReport{}, err
 	}
-	type timelineKey struct {
-		SlotReference     int
-		TimelineReference int
-	}
-	byReference := make(map[timelineKey][]ProjectSlotAttachmentTimeline)
+	byOffset := make(map[int][]ProjectSlotAttachmentTimeline)
 	for _, timeline := range directory.Timelines {
-		key := timelineKey{
-			SlotReference:     timeline.SlotReference,
-			TimelineReference: timeline.TimelineReference,
-		}
-		byReference[key] = append(
-			byReference[key],
+		byOffset[timeline.Offset] = append(
+			byOffset[timeline.Offset],
 			timeline,
 		)
 	}
@@ -169,7 +163,7 @@ func PatchProjectSlotAttachmentFrames(
 		RegionEnd:       directory.RegionEnd,
 		Changes:         make([]ProjectSlotAttachmentFrameChange, 0, len(patch.Edits)),
 	}
-	seen := make(map[[3]int]struct{}, len(patch.Edits))
+	seen := make(map[[2]int]struct{}, len(patch.Edits))
 	for editIndex, edit := range patch.Edits {
 		if !finiteProjectFloat(edit.From) || !finiteProjectFloat(edit.To) ||
 			edit.To < 0 {
@@ -182,33 +176,36 @@ func PatchProjectSlotAttachmentFrames(
 			return nil, ProjectSlotAttachmentPatchReport{},
 				fmt.Errorf("edit %d: from and to must differ", editIndex)
 		}
-		selection := [3]int{
-			edit.SlotReference,
-			edit.TimelineReference,
-			edit.KeyIndex,
-		}
+		selection := [2]int{edit.TimelineOffset, edit.KeyIndex}
 		if _, duplicate := seen[selection]; duplicate {
 			return nil, ProjectSlotAttachmentPatchReport{},
 				fmt.Errorf(
-					"edit %d: duplicate slotReference/timelineReference/keyIndex",
+					"edit %d: duplicate timelineOffset/keyIndex",
 					editIndex,
 				)
 		}
 		seen[selection] = struct{}{}
-		matches := byReference[timelineKey{
-			SlotReference:     edit.SlotReference,
-			TimelineReference: edit.TimelineReference,
-		}]
+		matches := byOffset[edit.TimelineOffset]
 		if len(matches) != 1 {
 			return nil, ProjectSlotAttachmentPatchReport{}, fmt.Errorf(
-				"edit %d: slotReference %d timelineReference %d matched %d attachment timelines",
+				"edit %d: timelineOffset %d matched %d attachment timelines",
 				editIndex,
-				edit.SlotReference,
-				edit.TimelineReference,
+				edit.TimelineOffset,
 				len(matches),
 			)
 		}
 		timeline := matches[0]
+		if timeline.SlotReference != edit.SlotReference ||
+			timeline.TimelineReference != edit.TimelineReference {
+			return nil, ProjectSlotAttachmentPatchReport{}, fmt.Errorf(
+				"edit %d: timeline identity is slotReference %d timelineReference %d, expected %d/%d",
+				editIndex,
+				timeline.SlotReference,
+				timeline.TimelineReference,
+				edit.SlotReference,
+				edit.TimelineReference,
+			)
+		}
 		if edit.KeyIndex < 0 || edit.KeyIndex >= len(timeline.Keys) {
 			return nil, ProjectSlotAttachmentPatchReport{}, fmt.Errorf(
 				"edit %d: keyIndex %d is outside [0,%d)",
@@ -233,6 +230,7 @@ func PatchProjectSlotAttachmentFrames(
 		report.Changes = append(report.Changes, ProjectSlotAttachmentFrameChange{
 			SlotReference:     edit.SlotReference,
 			TimelineReference: edit.TimelineReference,
+			TimelineOffset:    edit.TimelineOffset,
 			KeyIndex:          edit.KeyIndex,
 			From:              edit.From,
 			To:                edit.To,
