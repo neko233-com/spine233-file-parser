@@ -1,6 +1,132 @@
 package spineparser
 
-import "testing"
+import (
+	"encoding/binary"
+	"math"
+	"testing"
+)
+
+func TestReadProjectTransformKeysV2SupportsMixedCurves(t *testing.T) {
+	payload := make([]byte, 0, 64)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 0)
+	payload = appendProjectTransformTestFloat(payload, 10)
+	payload = append(payload, 1)
+	for _, value := range []float32{1, 2, 3, 4, 0} {
+		payload = appendProjectTransformTestFloat(payload, value)
+	}
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 30)
+	payload = appendProjectTransformTestFloat(payload, 20)
+	payload = append(payload, 0)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 60)
+	payload = appendProjectTransformTestFloat(payload, 30)
+	payload = append(payload, 1)
+	for _, value := range []float32{5, 6, 7, 8, 0} {
+		payload = appendProjectTransformTestFloat(payload, value)
+	}
+
+	keys, end, ok := readProjectTransformKeysV2(
+		payload,
+		0,
+		len(payload),
+		3,
+		1,
+	)
+	if !ok || end != len(payload) || len(keys) != 3 {
+		t.Fatalf("keys = %#v, end = %d, ok = %v", keys, end, ok)
+	}
+	if len(keys[0].CurveFlags) != 21 ||
+		keys[0].Curves[0] != [4]float32{1, 2, 3, 4} {
+		t.Fatalf("Bezier key = %#v", keys[0])
+	}
+	if len(keys[1].CurveFlags) != 1 ||
+		keys[1].CurveFlags[0] != 0 ||
+		keys[1].Frame != 30 ||
+		keys[1].Values[0] != 20 {
+		t.Fatalf("linear key = %#v", keys[1])
+	}
+	if len(keys[2].CurveFlags) != 21 ||
+		keys[2].Curves[0] != [4]float32{5, 6, 7, 8} {
+		t.Fatalf("second Bezier key = %#v", keys[2])
+	}
+}
+
+func TestReadProjectTransformKeysV2SupportsCompactThenExpanded(
+	t *testing.T,
+) {
+	payload := make([]byte, 0, 64)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 0)
+	payload = appendProjectTransformTestFloat(payload, 10)
+	payload = append(payload, 0)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 30)
+	payload = appendProjectTransformTestFloat(payload, 20)
+	payload = append(payload, 1)
+	for _, value := range []float32{1, 2, 3, 4, 0} {
+		payload = appendProjectTransformTestFloat(payload, value)
+	}
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendProjectTransformTestFloat(payload, 60)
+	payload = appendProjectTransformTestFloat(payload, 30)
+	payload = append(payload, 0)
+
+	keys, end, ok := readProjectTransformKeysV2(
+		payload,
+		0,
+		len(payload),
+		3,
+		1,
+	)
+	if !ok || end != len(payload) || len(keys) != 3 {
+		t.Fatalf("keys = %#v, end = %d, ok = %v", keys, end, ok)
+	}
+	if len(keys[0].CurveFlags) != 1 ||
+		len(keys[1].CurveFlags) != 21 ||
+		keys[1].Curves[0] != [4]float32{1, 2, 3, 4} ||
+		len(keys[2].CurveFlags) != 1 {
+		t.Fatalf("mixed keys = %#v", keys)
+	}
+}
+
+func TestReadProjectTransformKeysV2ResolvesCompactPrefixCollision(
+	t *testing.T,
+) {
+	payload := make([]byte, 0, 80)
+	for index := 0; index < 4; index++ {
+		payload = append(payload, projectTimelineKeyPrefix...)
+		payload = appendProjectTransformTestFloat(payload, float32(index))
+		payload = appendProjectTransformTestFloat(payload, float32(index+10))
+		payload = append(payload, 0)
+	}
+	keysEnd := len(payload)
+	payload = append(payload, 0x81, 0x14)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, projectTimelinePathPosition, 0x01, 0x01)
+	payload = append(payload, projectTimelineKeyPrefix...)
+
+	keys, end, ok := readProjectTransformKeysV2(
+		payload,
+		0,
+		len(payload),
+		4,
+		1,
+	)
+	if !ok || end != keysEnd || len(keys) != 4 {
+		t.Fatalf("keys = %#v, end = %d, ok = %v", keys, end, ok)
+	}
+}
+
+func appendProjectTransformTestFloat(
+	payload []byte,
+	value float32,
+) []byte {
+	var encoded [4]byte
+	binary.BigEndian.PutUint32(encoded[:], math.Float32bits(value))
+	return append(payload, encoded[:]...)
+}
 
 func TestDiscoverAndPatchProjectTransformTimelines(t *testing.T) {
 	payload := projectTransformPayloadForTest()

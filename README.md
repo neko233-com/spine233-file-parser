@@ -69,6 +69,22 @@ for _, animation := range directory.Records {
 }
 ```
 
+动作时长：
+
+```go
+duration, err := spineparser.DiscoverProjectAnimationDurationInRange(
+	document.Payload,
+	animation.Name,
+	animation.Offset,
+	animation.EndOffset,
+)
+fmt.Println(duration.LastFrame, duration.Duration)
+```
+
+动作时长只读取 timeline 关键帧的最大帧号，不要求解析 timeline owner
+或具体数值，因此可覆盖语义导出器尚未支持的 timeline 类型。`Duration`
+按项目固定帧率换算为秒；范围内 timeline 或关键帧结构不完整时失败。
+
 骨骼引用：
 
 ```go

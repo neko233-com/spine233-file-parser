@@ -167,6 +167,110 @@ func TestDiscoverProjectEventTimelinesRejectsInvalidKeys(t *testing.T) {
 	}
 }
 
+func TestDiscoverProjectEventTimelineV2DefaultPayload(t *testing.T) {
+	payload := append([]byte{}, modernAnimationHeaderPrefix...)
+	payload = append(payload, 0x01)
+	payload = append(payload, modernAnimationHeaderSuffix...)
+	payload = append(payload, 0x09)
+	payload = append(payload, modernAnimationHeaderTail...)
+	payload = append(payload, kryoASCIIForTest("skill_0")...)
+	payload = append(payload, modernAnimationValuePrefix...)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, projectTimelineEvent, 0x01, 0x01)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendFloat32ForTest(payload, 13)
+	payload = append(payload, projectEventDefaultPayloadPrefixV2...)
+	payload = append(payload, kryoASCIIForTest("event_skill0")...)
+	payload = append(payload, projectEventDefaultPayloadSuffixV2...)
+
+	directory, err := DiscoverProjectEventTimelines(payload, "skill_0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(directory.Timelines) != 1 {
+		t.Fatalf("timelines = %#v", directory.Timelines)
+	}
+	timeline := directory.Timelines[0]
+	if timeline.TimelineReference != 0 ||
+		timeline.KeyReference != 0 ||
+		len(timeline.Keys) != 1 ||
+		timeline.Keys[0].Name != "event_skill0" ||
+		timeline.Keys[0].Frame != 13 {
+		t.Fatalf("timeline = %#v", timeline)
+	}
+}
+
+func TestDiscoverProjectEventTriggerTime(t *testing.T) {
+	payload := projectEventPayloadV2ForTest()
+	trigger, err := DiscoverProjectEventTriggerTime(payload, "skill_0", "event_skill0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trigger.MatchCount != 1 || trigger.Time != 13.0/30.0 || trigger.FrameRate != 30 {
+		t.Fatalf("trigger = %#v", trigger)
+	}
+	missing, err := DiscoverProjectEventTriggerTime(payload, "skill_0", "event_missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing.MatchCount != 0 {
+		t.Fatalf("missing trigger = %#v", missing)
+	}
+	if _, err := DiscoverProjectEventTriggerTime(projectEventPayloadForTest(), "run", "event_skill0"); err == nil {
+		t.Fatal("expected unnamed event keys to fail closed")
+	}
+}
+
+func TestDiscoverProjectEventTriggerTimeRejectsDuplicate(t *testing.T) {
+	payload := projectEventPayloadV2ForTest()
+	// The V2 helper encodes one key. Change the key count to two and append a
+	// second event key to verify duplicate matching.
+	first := append([]byte(nil), payload...)
+	header := bytes.Index(first, []byte{projectTimelineEvent, 0x01, 0x01})
+	if header < 0 {
+		t.Fatal("event timeline header not found")
+	}
+	first[header+2] = 0x02
+	first = append(first, projectTimelineKeyPrefix...)
+	first = appendFloat32ForTest(first, 26)
+	first = append(first, projectEventDefaultPayloadPrefixV2...)
+	first = append(first, kryoASCIIForTest("event_skill0")...)
+	first = append(first, projectEventDefaultPayloadSuffixV2...)
+	if _, err := DiscoverProjectEventTriggerTime(first, "skill_0", "event_skill0"); err == nil {
+		t.Fatal("expected duplicate event trigger rejection")
+	}
+}
+
+func TestDiscoverProjectEventTimelineV2RejectsUnknownPayload(t *testing.T) {
+	payload := projectEventPayloadV2ForTest()
+	directory, err := DiscoverProjectEventTimelines(payload, "skill_0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload[directory.Timelines[0].Keys[0].FrameOffset+8] = 1
+	if _, err := DiscoverProjectEventTimelines(payload, "skill_0"); err == nil {
+		t.Fatal("expected unknown V2 event payload rejection")
+	}
+}
+
+func projectEventPayloadV2ForTest() []byte {
+	payload := append([]byte{}, modernAnimationHeaderPrefix...)
+	payload = append(payload, 0x01)
+	payload = append(payload, modernAnimationHeaderSuffix...)
+	payload = append(payload, 0x09)
+	payload = append(payload, modernAnimationHeaderTail...)
+	payload = append(payload, kryoASCIIForTest("skill_0")...)
+	payload = append(payload, modernAnimationValuePrefix...)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, projectTimelineEvent, 0x01, 0x01)
+	payload = append(payload, projectTimelineKeyPrefix...)
+	payload = appendFloat32ForTest(payload, 13)
+	payload = append(payload, projectEventDefaultPayloadPrefixV2...)
+	payload = append(payload, kryoASCIIForTest("event_skill0")...)
+	payload = append(payload, projectEventDefaultPayloadSuffixV2...)
+	return payload
+}
+
 func projectEventPayloadForTest() []byte {
 	payload := append([]byte{}, modernAnimationHeaderPrefix...)
 	payload = append(payload, 0x01)

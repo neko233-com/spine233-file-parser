@@ -3,13 +3,16 @@ package spineparser
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 var (
-	modernAnimationHeaderPrefix = []byte{0x07, 0x0f, 0x01}
-	modernAnimationHeaderSuffix = []byte{0x12, 0x01}
-	modernAnimationHeaderTail   = []byte{0x00, 0x03, 0x01, 0x01}
-	modernAnimationValuePrefix  = []byte{0x02, 0x0f, 0x01}
+	modernAnimationHeaderPrefix   = []byte{0x07, 0x0f, 0x01}
+	modernAnimationHeaderSuffix   = []byte{0x12, 0x01}
+	modernAnimationHeaderTail     = []byte{0x00, 0x03, 0x01, 0x01}
+	modernAnimationValuePrefix    = []byte{0x02, 0x0f, 0x01}
+	legacyV42AnimationValuePrefix = []byte{0x06, 0x01, 0x02, 0x0f, 0x01}
+	projectAnimationV2Value       = []byte{0x0a, 0x1e, 0x01}
 )
 
 // ProjectAnimationRecord identifies one top-level animation value in the
@@ -73,10 +76,17 @@ func DiscoverProjectAnimations(payload []byte) (*ProjectAnimationDirectory, erro
 		})
 	}
 	if len(candidates) == 0 {
-		return nil, &ParseError{
-			Code: ErrInvalidProject,
-			Msg:  "supported project animation map was not found",
+		if directory, err := discoverProjectAnimationsV42(payload); err == nil {
+			return directory, nil
 		}
+		// 旧 4.3 项目没有现代 Animation Map 头。统一返回旧对象图
+		// 的动画区间，供所有时间线解析器复用，避免导出器静默跳过动画。
+		if strings.HasPrefix(legacyProject43Family(payload), "spine-4.3-legacy-project") {
+			if directory := discoverLegacyProjectAnimations(payload, nil, ""); len(directory.Records) > 0 {
+				return directory, nil
+			}
+		}
+		return discoverProjectAnimationsV2(payload)
 	}
 	if len(candidates) != 1 {
 		return nil, &ParseError{
@@ -87,10 +97,159 @@ func DiscoverProjectAnimations(payload []byte) (*ProjectAnimationDirectory, erro
 	return &candidates[0], nil
 }
 
+// discoverProjectAnimationsV42 解析 4.2.x 项目保存布局中的动画 Map。
+// 4.2 在动画 Map 头部多了一层字段包装，Map value 也多出 06 01；
+// 其后仍复用同一套动画对象与关键帧数据边界。
+func discoverProjectAnimationsV42(payload []byte) (*ProjectAnimationDirectory, error) {
+	candidates := make([]ProjectAnimationDirectory, 0, 1)
+	for offset := 0; offset+len(modernAnimationHeaderPrefix) < len(payload); offset++ {
+		if !bytes.HasPrefix(payload[offset:], modernAnimationHeaderPrefix) {
+			continue
+		}
+		count, cursor, ok := readPositiveVarint(payload, offset+len(modernAnimationHeaderPrefix))
+		if !ok || count < 1 || count > 10_000 ||
+			cursor+len(modernAnimationHeaderSuffix)+1 > len(payload) ||
+			!bytes.Equal(payload[cursor:cursor+len(modernAnimationHeaderSuffix)], modernAnimationHeaderSuffix) {
+			continue
+		}
+		cursor += len(modernAnimationHeaderSuffix)
+		if payload[cursor] != 0x09 {
+			continue
+		}
+		cursor++
+		if cursor+2 <= len(payload) && bytes.Equal(payload[cursor:cursor+2], []byte{0x05, 0x01}) {
+			cursor += 2
+		}
+		if cursor+len(modernAnimationHeaderTail) > len(payload) ||
+			!bytes.HasPrefix(payload[cursor:], modernAnimationHeaderTail) {
+			continue
+		}
+		firstRecord := cursor + len(modernAnimationHeaderTail)
+		records := scanProjectAnimationRecordsWithValuePrefix(
+			payload,
+			firstRecord,
+			count,
+			legacyV42AnimationValuePrefix,
+			false,
+		)
+		if len(records) != count {
+			continue
+		}
+		candidates = append(candidates, ProjectAnimationDirectory{
+			Format:       "kryo-animation-map-v42",
+			HeaderOffset: offset,
+			Count:        count,
+			Records:      records,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil, &ParseError{Code: ErrInvalidProject, Msg: "4.2 project animation map was not found"}
+	}
+	if len(candidates) != 1 {
+		return nil, &ParseError{
+			Code: ErrInvalidProject,
+			Msg:  fmt.Sprintf("project contains %d 4.2 animation map candidates", len(candidates)),
+		}
+	}
+	return &candidates[0], nil
+}
+
+// discoverProjectAnimationsV2 supports the 4.3.23 tagged-field layout. The
+// map header still carries the exact entry count, while each inline key is
+// guarded by both the map-entry prefix and the Animation value class prefix.
+func discoverProjectAnimationsV2(payload []byte) (*ProjectAnimationDirectory, error) {
+	candidates := make([]ProjectAnimationDirectory, 0, 1)
+	for offset := 0; offset+len(modernAnimationHeaderPrefix) < len(payload); offset++ {
+		if !bytes.HasPrefix(payload[offset:], modernAnimationHeaderPrefix) {
+			continue
+		}
+		count, cursor, ok := readPositiveVarint(payload, offset+len(modernAnimationHeaderPrefix))
+		if !ok || count < 1 || count > 10_000 ||
+			cursor+len(modernAnimationHeaderSuffix)+1 > len(payload) ||
+			!bytes.Equal(payload[cursor:cursor+len(modernAnimationHeaderSuffix)], modernAnimationHeaderSuffix) {
+			continue
+		}
+		cursor += len(modernAnimationHeaderSuffix)
+		if payload[cursor] != 0x0a {
+			continue
+		}
+		records := scanProjectAnimationRecordsV2(payload, cursor+1, count)
+		if len(records) != count {
+			continue
+		}
+		candidates = append(candidates, ProjectAnimationDirectory{
+			Format:       "kryo-animation-map-v2",
+			HeaderOffset: offset,
+			Count:        count,
+			Records:      records,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil, &ParseError{
+			Code: ErrInvalidProject,
+			Msg:  "supported project animation map was not found",
+		}
+	}
+	if len(candidates) != 1 {
+		return nil, &ParseError{
+			Code: ErrInvalidProject,
+			Msg:  fmt.Sprintf("project contains %d V2 animation map candidates", len(candidates)),
+		}
+	}
+	return &candidates[0], nil
+}
+
+func scanProjectAnimationRecordsV2(
+	payload []byte,
+	firstOffset int,
+	count int,
+) []ProjectAnimationRecord {
+	records := make([]ProjectAnimationRecord, 0, count)
+	for keyOffset := firstOffset; keyOffset < len(payload) && len(records) < count; keyOffset++ {
+		if keyOffset > firstOffset && isUnterminatedASCII(payload[keyOffset-1]) {
+			continue
+		}
+		name, end, ok := decodeProjectASCII(payload, keyOffset)
+		if !ok || end+len(projectAnimationV2Value) > len(payload) ||
+			!bytes.Equal(payload[end:end+len(projectAnimationV2Value)], projectAnimationV2Value) {
+			continue
+		}
+		records = append(records, ProjectAnimationRecord{Name: name, Offset: keyOffset})
+		keyOffset = end + len(projectAnimationV2Value) - 1
+	}
+	if len(records) != count {
+		return nil
+	}
+	for index := range records {
+		if index+1 < len(records) {
+			records[index].EndOffset = records[index+1].Offset
+		} else {
+			records[index].EndOffset = len(payload)
+		}
+	}
+	return records
+}
+
 func scanProjectAnimationRecords(
 	payload []byte,
 	firstOffset int,
 	count int,
+) []ProjectAnimationRecord {
+	return scanProjectAnimationRecordsWithValuePrefix(
+		payload,
+		firstOffset,
+		count,
+		modernAnimationValuePrefix,
+		true,
+	)
+}
+
+func scanProjectAnimationRecordsWithValuePrefix(
+	payload []byte,
+	firstOffset int,
+	count int,
+	valuePrefix []byte,
+	requireFirstOffset bool,
 ) []ProjectAnimationRecord {
 	records := make([]ProjectAnimationRecord, 0, count)
 	for offset := firstOffset; offset < len(payload) && len(records) < count; offset++ {
@@ -98,14 +257,14 @@ func scanProjectAnimationRecords(
 			continue
 		}
 		name, end, ok := decodeProjectASCII(payload, offset)
-		if !ok || end+len(modernAnimationValuePrefix) > len(payload) ||
-			!bytes.Equal(payload[end:end+len(modernAnimationValuePrefix)], modernAnimationValuePrefix) {
+		if !ok || end+len(valuePrefix) > len(payload) ||
+			!bytes.Equal(payload[end:end+len(valuePrefix)], valuePrefix) {
 			continue
 		}
 		records = append(records, ProjectAnimationRecord{Name: name, Offset: offset})
-		offset = end + len(modernAnimationValuePrefix) - 1
+		offset = end + len(valuePrefix) - 1
 	}
-	if len(records) != count || len(records) == 0 || records[0].Offset != firstOffset {
+	if len(records) != count || len(records) == 0 || (requireFirstOffset && records[0].Offset != firstOffset) {
 		return nil
 	}
 	for index := range records {

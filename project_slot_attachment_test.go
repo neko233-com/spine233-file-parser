@@ -2,6 +2,60 @@ package spineparser
 
 import "testing"
 
+func TestDiscoverProjectSlotAttachmentTimelineV2ReadsValuesAndOwner(t *testing.T) {
+	payload := append([]byte(nil), projectTimelinePrefix...)
+	payload = append(payload, projectTimelineAttachment, 0x01, 0x03)
+	payload = appendProjectSlotAttachmentKeyV2ForTest(
+		payload,
+		0,
+		ProjectAttachmentClassMesh,
+		676,
+	)
+	payload = appendProjectSlotAttachmentKeyV2ForTest(payload, 14, 0, 0)
+	payload = appendProjectSlotAttachmentKeyV2ForTest(
+		payload,
+		83,
+		ProjectAttachmentClassMesh,
+		546,
+	)
+	payload = append(payload, 0xb6, 0x03, 0x01, 0x26, 0x04, 0x00)
+
+	timelines := discoverProjectSlotAttachmentTimelinesInGroupV2(
+		payload,
+		0,
+		len(payload),
+	)
+	if len(timelines) != 1 ||
+		timelines[0].SlotReference != 438 ||
+		len(timelines[0].Keys) != 3 ||
+		timelines[0].Keys[0].AttachmentReference != 676 ||
+		timelines[0].Keys[1].HasAttachment ||
+		timelines[0].Keys[2].AttachmentReference != 546 {
+		t.Fatalf("timelines = %#v", timelines)
+	}
+}
+
+func TestProjectSlotAttachmentKeyV2AcceptsSequenceMarkerTwo(t *testing.T) {
+	payload := append([]byte(nil), projectTimelineKeyPrefix...)
+	payload = appendFloat32ForTest(payload, 0)
+	payload = append(payload, 2)
+	payload = appendPositiveVarintForTest(payload, ProjectAttachmentClassMesh)
+	payload = appendPositiveVarintForTest(payload, 37)
+
+	keys, next, ok := readProjectSlotAttachmentKeysV2(
+		payload,
+		0,
+		len(payload),
+		1,
+	)
+	if !ok || next != len(payload) || len(keys) != 1 ||
+		!keys[0].HasAttachment ||
+		keys[0].AttachmentClassID != ProjectAttachmentClassMesh ||
+		keys[0].AttachmentReference != 37 {
+		t.Fatalf("keys = %#v, next = %d, ok = %v", keys, next, ok)
+	}
+}
+
 func TestDiscoverAndPatchProjectSlotAttachmentTimelines(t *testing.T) {
 	payload := append([]byte{}, modernAnimationHeaderPrefix...)
 	payload = append(payload, 0x01)
@@ -72,6 +126,22 @@ func TestDiscoverAndPatchProjectSlotAttachmentTimelines(t *testing.T) {
 	if rediscovered.Timelines[0].Keys[1].Frame != 18 {
 		t.Fatalf("rediscovered = %#v", rediscovered)
 	}
+}
+
+func appendProjectSlotAttachmentKeyV2ForTest(
+	output []byte,
+	frame float32,
+	classID int,
+	reference int,
+) []byte {
+	output = append(output, projectTimelineKeyPrefix...)
+	output = appendFloat32ForTest(output, frame)
+	output = append(output, 0)
+	if classID == 0 {
+		return append(output, 0)
+	}
+	output = appendPositiveVarintForTest(output, classID)
+	return appendPositiveVarintForTest(output, reference)
 }
 
 func TestPatchProjectSlotAttachmentFramesRejectsOrderChange(t *testing.T) {

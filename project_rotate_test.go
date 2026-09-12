@@ -6,6 +6,126 @@ import (
 	"testing"
 )
 
+func TestDiscoverProjectBoneTimelineGroupsCompactV2UsesTerminalOwner(t *testing.T) {
+	wrapper := []byte{0x13, 0x01, 0x04, 0x07, 0x06, 0x02, 0x0f, 0x01, 0x01}
+	payload := append([]byte(nil), wrapper...)
+	firstOffset := len(payload)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x07, 0x04, 0x00)
+	payload = append(payload, wrapper...)
+	secondOffset := len(payload)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x09, 0x04, 0x00)
+
+	groups := discoverProjectBoneTimelineGroupsCompactV2(
+		payload,
+		0,
+		len(payload),
+	)
+	if len(groups) != 2 ||
+		groups[0].Offset != firstOffset || groups[0].BoneReference != 7 ||
+		groups[1].Offset != secondOffset || groups[1].BoneReference != 9 {
+		t.Fatalf("groups = %#v", groups)
+	}
+}
+
+func TestDiscoverProjectBoneTimelineGroupsCompactV2AcceptsOwnerSuffixOne(
+	t *testing.T,
+) {
+	wrapper := []byte{0x13, 0x01, 0x04, 0x07, 0x06, 0x02, 0x0f, 0x01, 0x01}
+	payload := append([]byte(nil), wrapper...)
+	firstOffset := len(payload)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x07, 0x04, 0x01)
+	payload = append(payload, wrapper...)
+	secondOffset := len(payload)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x09, 0x04, 0x01)
+
+	groups := discoverProjectBoneTimelineGroupsCompactV2(
+		payload,
+		0,
+		len(payload),
+	)
+	if len(groups) != 2 ||
+		groups[0].Offset != firstOffset || groups[0].BoneReference != 7 ||
+		groups[1].Offset != secondOffset || groups[1].BoneReference != 9 {
+		t.Fatalf("groups = %#v", groups)
+	}
+}
+
+func TestDiscoverProjectBoneTimelineGroupsCompactV2SkipsNonTransformWrapper(
+	t *testing.T,
+) {
+	wrapper := []byte{0x13, 0x01, 0x04, 0x07, 0x06, 0x02, 0x0f, 0x01, 0x01}
+	payload := append([]byte(nil), wrapper...)
+	transformOffset := len(payload)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x07, 0x04, 0x00)
+	payload = append(payload, wrapper...)
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x20, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x00, 0x04, 0x01)
+
+	groups := discoverProjectBoneTimelineGroupsCompactV2(
+		payload,
+		0,
+		len(payload),
+	)
+	if len(groups) != 1 ||
+		groups[0].Offset != transformOffset ||
+		groups[0].BoneReference != 7 {
+		t.Fatalf("groups = %#v", groups)
+	}
+}
+
+func TestDiscoverProjectBoneTimelineGroupsV2AcceptsBothOwnerFlags(
+	t *testing.T,
+) {
+	payload := append([]byte(nil), projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x07)
+	payload = append(payload, 0x04, 0x00, 0x13, 0x01, 0x04, 0x07)
+	secondOffset := len(payload) - 4
+	payload = append(payload, projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x09, 0x04, 0x01)
+
+	groups := discoverProjectBoneTimelineGroupsV2(
+		payload,
+		0,
+		len(payload),
+	)
+	if len(groups) != 2 ||
+		groups[0].Offset != 0 || groups[0].BoneReference != 7 ||
+		groups[1].Offset != secondOffset ||
+		groups[1].BoneReference != 9 {
+		t.Fatalf("groups = %#v", groups)
+	}
+}
+
+func TestFindProjectV2GroupTerminalReferenceUsesLastOwner(t *testing.T) {
+	payload := append([]byte(nil), projectTimelinePrefix...)
+	payload = append(payload, 0x00, 0x01, 0x01)
+	payload = append(payload, 0x01, 0x42, 0x04, 0x01)
+	payload = append(payload, 0x00, 0x00)
+	payload = append(payload, 0x01, 0x49, 0x04, 0x00)
+
+	reference := findProjectV2GroupTerminalReference(
+		payload,
+		0,
+		len(payload),
+	)
+	if reference != 0x49 {
+		t.Fatalf("reference = %d", reference)
+	}
+}
+
 func TestDiscoverAndPatchProjectRotateTimelines(t *testing.T) {
 	payload := append([]byte{}, modernAnimationHeaderPrefix...)
 	payload = append(payload, 0x01)
