@@ -415,10 +415,8 @@ func discoverProjectEventTimelinesInRecord(
 			)
 			if ok && keyCount >= 1 && keyCount <= 100_000 {
 				legacyFamily := legacyProject43Family(payload)
-				if strings.HasPrefix(
-					legacyFamily,
-					"spine-4.3-legacy-project-",
-				) {
+				if strings.HasPrefix(legacyFamily, "spine-4.3-legacy-project-") ||
+					isProjectV4326Payload(payload) {
 					keys, next, keysOK := readProjectEventKeysLegacyV43(
 						payload,
 						keyCursor,
@@ -482,6 +480,14 @@ func discoverProjectEventTimelinesInRecord(
 		})
 	}
 	return timelines
+}
+
+func isProjectV4326Payload(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	_, err := discoverProjectAnimationsV4326(payload)
+	return err == nil
 }
 
 // readProjectEventKeysLegacyV43 解析 4.3 旧对象图的事件 key。它与现代
