@@ -127,6 +127,29 @@ func AnalyzeJSON(source []byte) (*ProjectAnalysis, error) {
 	analysis.Transform = namedArray(root["transform"])
 	analysis.PathConstraints = namedArray(root["path"])
 	analysis.Physics = namedArray(root["physics"])
+	if constraints, ok := array(root["constraints"]); ok {
+		for _, raw := range constraints {
+			constraint, ok := object(raw)
+			if !ok {
+				continue
+			}
+			name, _ := constraint["name"].(string)
+			kind, _ := constraint["type"].(string)
+			if name == "" {
+				continue
+			}
+			switch kind {
+			case "ik":
+				analysis.IKConstraints = append(analysis.IKConstraints, name)
+			case "transform":
+				analysis.Transform = append(analysis.Transform, name)
+			case "path":
+				analysis.PathConstraints = append(analysis.PathConstraints, name)
+			case "physics":
+				analysis.Physics = append(analysis.Physics, name)
+			}
+		}
+	}
 	analysis.Events = objectKeys(root["events"])
 	analysis.Animations = objectKeys(root["animations"])
 	analysis.Skins = analyzeSkins(root["skins"], analysis.AttachmentTypes)

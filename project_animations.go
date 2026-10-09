@@ -76,6 +76,9 @@ func DiscoverProjectAnimations(payload []byte) (*ProjectAnimationDirectory, erro
 		})
 	}
 	if len(candidates) == 0 {
+		if directory, err := discoverProjectAnimationsV4326(payload); err == nil {
+			return directory, nil
+		}
 		if directory, err := discoverProjectAnimationsV42(payload); err == nil {
 			return directory, nil
 		}

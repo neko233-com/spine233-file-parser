@@ -24,6 +24,10 @@ func TestDiscoverProjectAnimationsV4326(t *testing.T) {
 	if want := []string{"idle", "run"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("animation names = %#v, want %#v", got, want)
 	}
+	public, err := DiscoverProjectAnimations(payload)
+	if err != nil || public.Format != "kryo-animation-map-v4326" || public.Count != 2 {
+		t.Fatalf("public discovery did not route to 4.3.26: %+v, %v", public, err)
+	}
 }
 
 func TestMergeProjectSlotsV4326(t *testing.T) {

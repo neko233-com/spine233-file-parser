@@ -274,6 +274,28 @@ fmt.Println(result.OutputDirectory)
 
 默认解压限制 256 MiB；可用 `InspectOptions.MaxUncompressedBytes` 调整。
 
+## Spine 4.3 校验与可编辑工程归档
+
+`ValidateSpine43JSON` 验证版本、父骨骼顺序、4.3 `constraints` 引用、
+slot/事件引用、关键帧时间顺序以及每通道 Bezier 控制值。它保留未知字段，
+不是完整运行时加载器。`AnalyzeJSON` 同时统计 4.3 的统一约束数组。
+
+```go
+report, err := spineparser.ValidateSpine43JSON(runtimeJSON)
+archive, err := spineparser.ArchiveProject(document)
+// archive 可序列化为 JSON；Payload 是 base64，PayloadSHA256 检查原始数据。
+// 修改 archive.Animations 中已有 key 的 Frame、Values，然后恢复工程。
+restored, changes, err := spineparser.RestoreProjectArchive(archive)
+encoded, err := spineparser.SerializeProject(restored, spineparser.ProjectSerializeOptions{})
+```
+
+未修改归档时，恢复的解压 payload 逐字节一致。修改操作保留未知工程对象，
+固定时间线和关键帧数量；拒绝校验和不符、引用不符、重复选择和非法帧顺序。
+归档 JSON 使用 `spine233-project/v1`，与 Spine runtime JSON 不同。
+无法解析的时间线保留在原始 payload 中，并通过 `Warnings` 显式报告。
+新增动画/骨骼/附件等改变对象图的操作，应通过官方 Spine JSON 导入完成。
+公共动画发现入口支持 4.3.26 布局。
+
 ## License
 
 MIT。Spine 是 Esoteric Software LLC 商标。
