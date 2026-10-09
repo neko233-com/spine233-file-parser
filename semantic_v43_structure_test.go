@@ -59,3 +59,11 @@ func TestPathConstraint43UsesSlotReference(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscreteAttachmentKeysMayShareATime(t *testing.T) {
+	data := strings.Replace(rich43Fixture, `{"time":1,"name":null}`, `{"time":0,"name":null}`, 1)
+	report, err := ValidateSpine43JSON([]byte(data))
+	if err != nil || !report.Valid {
+		t.Fatalf("official discrete key pattern rejected: %+v %v", report, err)
+	}
+}

@@ -286,6 +286,10 @@ transform、path、physics、slider、deform/sequence、events、drawOrder 和
 drawOrderFolder 的已知 key 数组，返回路径、所有者、种类和通道数。
 未知扩展对象中的 time/curve 不作为时间线处理，便于调用方安全重定时和比较。
 
+插值时间线要求严格递增的 key time。附件、draw order、inherit 等离散时间线
+允许同一时刻有多个 key，顺序保留；时间倒退仍报错。此规则已用真实 3.8 → 4.3
+角色迁移和重复附件 key 验证，不会静默修改输入动画或删除事件。
+
 ```go
 err := spineparser.VisitAnimation43Timelines(animation, func(t spineparser.Animation43Timeline) error {
     fmt.Println(t.Path, t.Category, t.Owner, t.Kind, len(t.Keys), t.Channels)

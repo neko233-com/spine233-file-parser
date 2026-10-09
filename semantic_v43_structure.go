@@ -236,8 +236,8 @@ func validate43Structure(root map[string]any, report *ValidationReport) {
 						time = number
 					}
 				}
-				if time < previous || (time == previous && t.Category != "events") {
-					report.add(keyPath+"/time", "key times must increase; events may share a time")
+				if time < previous || (time == previous && t.Channels != 0) {
+					report.add(keyPath+"/time", "interpolated key times must increase; discrete timelines may share a time")
 				}
 				previous = time
 				validate43Numbers(key, keyPath, []string{"value", "x", "y", "mix", "softness", "mixRotate", "mixX", "mixY", "mixScaleX", "mixScaleY", "mixShearY", "int", "float", "volume", "balance", "delay", "index", "offset"}, report)
