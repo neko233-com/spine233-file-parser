@@ -71,3 +71,19 @@ func TestProjectArchiveRejectsInvalidEdits(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectArchiveChecksEmbeddedSourceVersion(t *testing.T) {
+	payload := []byte{'4', '.', '3', '.', '2', '6' | 0x80, 0, 1, 2, 3}
+	archive, err := ArchiveProject(&ProjectDocument{Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive.SourceVersion = "4.3.26"
+	if _, _, err := RestoreProjectArchive(archive); err != nil {
+		t.Fatal(err)
+	}
+	archive.SourceVersion = "4.3.25"
+	if _, _, err := RestoreProjectArchive(archive); err == nil {
+		t.Fatal("mismatched embedded version accepted")
+	}
+}

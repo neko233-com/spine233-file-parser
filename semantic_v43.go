@@ -2,7 +2,6 @@ package spineparser
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 )
@@ -79,10 +78,10 @@ func ValidateSpine43JSON(source []byte) (*ValidationReport, error) {
 					}
 				}
 			}
-			for _, field := range []string{"bone", "source", "target"} {
+			for _, field := range []string{"bone", "source", "target", "slot"} {
 				if target, ok := constraint[field].(string); ok {
 					owners := bones
-					if field == "target" && kind == "path" {
+					if field == "slot" && kind == "path" {
 						owners = slots
 					}
 					if _, exists := owners[target]; !exists {
@@ -127,8 +126,9 @@ func ValidateSpine43JSON(source []byte) (*ValidationReport, error) {
 				}
 			}
 		}
-		validate43Keys(animation, path, report)
 	}
+	validate43Structure(root, report)
+	unique43Issues(report)
 	sort.SliceStable(report.Issues, func(i, j int) bool {
 		if report.Issues[i].Path == report.Issues[j].Path {
 			return report.Issues[i].Message < report.Issues[j].Message
@@ -137,58 +137,4 @@ func ValidateSpine43JSON(source []byte) (*ValidationReport, error) {
 	})
 	report.Valid = len(report.Issues) == 0
 	return report, nil
-}
-
-func validate43Keys(value any, path string, report *ValidationReport) {
-	switch current := value.(type) {
-	case map[string]any:
-		for name, child := range current {
-			validate43Keys(child, path+"/"+escapePointer(name), report)
-		}
-	case []any:
-		previous := -1.0
-		for i, child := range current {
-			key, ok := object(child)
-			if !ok {
-				continue
-			}
-			keyPath := fmt.Sprintf("%s/%d", path, i)
-			time := 0.0
-			if raw, exists := key["time"]; exists {
-				var valid bool
-				time, valid = numeric(raw)
-				if !valid || math.IsNaN(time) || math.IsInf(time, 0) || time < 0 {
-					report.add(keyPath+"/time", "key time must be finite and non-negative")
-				}
-			}
-			if time < previous {
-				report.add(keyPath+"/time", "key times must be ordered")
-			}
-			previous = time
-			if raw, exists := key["curve"]; exists {
-				if stepped, ok := raw.(string); ok && stepped == "stepped" {
-					continue
-				}
-				curve, ok := array(raw)
-				channels := 1
-				for _, vector := range []string{"translate", "scale", "shear"} {
-					if strings.HasSuffix(path, "/"+vector) {
-						channels = 2
-					}
-				}
-				valid := ok && len(curve) > 0 && len(curve)%4 == 0
-				if strings.Contains(path, "/bones/") {
-					valid = ok && len(curve) == 4*channels
-				}
-				for _, raw := range curve {
-					number, ok := numeric(raw)
-					valid = valid && ok && !math.IsInf(number, 0) && !math.IsNaN(number)
-				}
-				if !valid {
-					report.add(keyPath+"/curve", "curve must be stepped or four finite control values per channel")
-				}
-			}
-			validate43Keys(child, keyPath, report)
-		}
-	}
 }

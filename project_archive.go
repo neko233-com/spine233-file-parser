@@ -72,6 +72,22 @@ func RestoreProjectArchive(archive *ProjectArchive) (*ProjectDocument, []Project
 	if hex.EncodeToString(digest[:]) != archive.PayloadSHA256 {
 		return nil, nil, fmt.Errorf("project archive payload checksum mismatch")
 	}
+	if archive.SourceVersion != "" {
+		values, err := ScanProjectStrings(archive.Payload, defaultMaxStrings)
+		if err != nil {
+			return nil, nil, err
+		}
+		actualVersion := ""
+		for _, value := range values {
+			if versionPattern.MatchString(value) {
+				actualVersion = value
+				break
+			}
+		}
+		if actualVersion != archive.SourceVersion {
+			return nil, nil, fmt.Errorf("archive sourceVersion does not match embedded payload: %q != %q", archive.SourceVersion, actualVersion)
+		}
+	}
 	document := &ProjectDocument{Payload: append([]byte(nil), archive.Payload...)}
 	reports := []ProjectTransformPatchReport{}
 	seen := map[string]bool{}

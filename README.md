@@ -276,9 +276,22 @@ fmt.Println(result.OutputDirectory)
 
 ## Spine 4.3 校验与可编辑工程归档
 
-`ValidateSpine43JSON` 验证版本、父骨骼顺序、4.3 `constraints` 引用、
-slot/事件引用、关键帧时间顺序以及每通道 Bezier 控制值。它保留未知字段，
+`ValidateSpine43JSON` 验证版本、容器类型、父骨骼顺序、4.3 `constraints` 引用、
+slot/skin/附件/事件引用、已知时间线结构、关键帧顺序、颜色、每通道 Bezier
+控制值以及 mesh/加权顶点索引。同一时刻允许多个事件。它保留未知字段，
 不是完整运行时加载器。`AnalyzeJSON` 同时统计 4.3 的统一约束数组。
+
+`VisitAnimation43Timelines` 是公共的确定性 visitor，覆盖 bones、slots、IK、
+transform、path、physics、slider、deform/sequence、events、drawOrder 和
+drawOrderFolder 的已知 key 数组，返回路径、所有者、种类和通道数。
+未知扩展对象中的 time/curve 不作为时间线处理，便于调用方安全重定时和比较。
+
+```go
+err := spineparser.VisitAnimation43Timelines(animation, func(t spineparser.Animation43Timeline) error {
+    fmt.Println(t.Path, t.Category, t.Owner, t.Kind, len(t.Keys), t.Channels)
+    return nil
+})
+```
 
 ```go
 report, err := spineparser.ValidateSpine43JSON(runtimeJSON)
@@ -291,6 +304,7 @@ encoded, err := spineparser.SerializeProject(restored, spineparser.ProjectSerial
 
 未修改归档时，恢复的解压 payload 逐字节一致。修改操作保留未知工程对象，
 固定时间线和关键帧数量；拒绝校验和不符、引用不符、重复选择和非法帧顺序。
+非空 SourceVersion 必须与 payload 中的版本一致，不能只靠修改元数据冒充版本。
 归档 JSON 使用 `spine233-project/v1`，与 Spine runtime JSON 不同。
 无法解析的时间线保留在原始 payload 中，并通过 `Warnings` 显式报告。
 新增动画/骨骼/附件等改变对象图的操作，应通过官方 Spine JSON 导入完成。
